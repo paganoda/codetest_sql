@@ -1,4 +1,4 @@
--- Aledade SQL code test
+﻿-- Aledade SQL code test
 --
 -- edit this file to answer the questions below.
 -- send back the entire file, such that it can be run against a PostgreSQL 9.5+ database in the following way to produce results:
@@ -45,15 +45,27 @@ values
   ;
 
 -- TODO 1. list living persons and all person_addresses associated with them on June 5, 2017
-
-
+select p.name, pa.address
+from person p
+left outer join person_address pa
+on p.id = pa.person_id
+and '2017-06-05'::date between pa.from_dt and COALESCE(pa.thru_dt,'2017-06-05'::date)
+where p.deceased_date is null
+;
 
 
 -- TODO 2. list top 3 person_address records per person order by longest duration
 -- (null thru_dt should be considered todays date, and should be included in consideration)
-
-
-
+select name, address, duration
+from (
+select p.name, pa.address, pa.from_dt, pa.thru_dt, COALESCE(pa.thru_dt,current_date) - pa.from_dt AS duration,
+rank() OVER (PARTITION BY p.name ORDER BY COALESCE(pa.thru_dt,current_date) - pa.from_dt DESC) 
+from person p
+left outer join person_address pa
+on p.id = pa.person_id
+) x
+where rank <= 3
+;
 
 -- Given a third table person_address_current (created below), intended to contain a non-deceased person's "current" address
 -- person_address_current is intended to be kept up-to-date every day, but due to an error hasn't been updated since 2001-01-01.
@@ -79,7 +91,30 @@ insert into person_address_current (person_id, address, from_dt)
     on p.id = pa.person_id and (p.deceased_date >= '2001-01-01'::date or p.deceased_date is null)
   where from_dt <= '2001-01-01'::date and (thru_dt >= '2001-01-01'::date or thru_dt is null);
 
+-- update records with current address unless address has not changed.
+update person_address_current
+set address = pa.address, from_dt = pa.from_dt
+from person_address pa
+where person_address_current.person_id = pa.person_id
+and '2017-06-05'::date between pa.from_dt and COALESCE(pa.thru_dt,'2017-06-05'::date)
+and person_address_current.from_dt < pa.from_dt
+;
 
+-- delete records for deceased people.
+delete from person_address_current where person_id in (select id from person where deceased_date is not null);
+
+-- insert missing people.
+insert into person_address_current (person_id, address, from_dt)
+select
+    p.id
+    , pa.address
+    , pa.from_dt
+  from person_address pa
+  join person p
+  on p.id = pa.person_id and p.deceased_date is not null
+  and (thru_dt >= '2017-06-05'::date or thru_dt is null)
+  where pa.person_id not in (select person_id from person_address_current)
+  ;
 
 
 
